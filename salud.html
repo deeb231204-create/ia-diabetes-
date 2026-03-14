@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SaludMX AI - Web Server Edition</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --mx-green: #006341; --mx-gold: #9f7c33; --accent: #2196F3; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f0f2f5; margin: 0; padding: 20px; }
+        .main-container { max-width: 1200px; margin: auto; display: grid; grid-template-columns: 400px 1fr; gap: 20px; }
+        header { grid-column: 1/-1; background: var(--mx-green); color: white; padding: 20px; border-radius: 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 5px solid var(--mx-gold); margin-bottom: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .card { background: white; padding: 25px; border-radius: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .console { background: #000; color: #00ff00; font-family: 'Courier New', monospace; font-size: 12px; padding: 12px; height: 120px; overflow-y: auto; border-radius: 8px; border: 1px solid var(--mx-gold); margin-bottom: 15px; }
+        
+        /* Botones */
+        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        button { border: none; border-radius: 8px; cursor: pointer; font-weight: bold; transition: 0.3s; padding: 12px; }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-main { background: var(--mx-gold); color: white; grid-column: span 2; }
+        .btn-load { background: var(--accent); color: white; display: none; grid-column: span 2; }
+        .btn-predict { background: var(--mx-green); color: white; width: 100%; font-size: 16px; margin-top: 15px; }
+        .btn-dl { background: #e91e63; color: white; grid-column: span 2; margin-top: 5px; font-size: 11px; }
+
+        /* Formulario */
+        label { display: block; font-size: 11px; font-weight: bold; color: #666; text-transform: uppercase; margin: 12px 0 5px; }
+        input, select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 8px; box-sizing: border-box; }
+        .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; background: #f8f9fa; padding: 15px; border-radius: 10px; border: 1px solid #eee; margin-top: 10px; }
+        .check-item { display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; }
+        .check-item input { width: 18px; height: 18px; accent-color: var(--mx-green); }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th { background: #f8f9fa; padding: 12px; text-align: left; font-size: 12px; border-bottom: 2px solid #eee; }
+        td { padding: 12px; border-bottom: 1px solid #eee; font-size: 14px; }
+        .badge { padding: 4px 10px; border-radius: 20px; font-weight: bold; font-size: 11px; }
+        .high { background: #fee2e2; color: #b91c1c; }
+        .low { background: #dcfce7; color: #15803d; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div>
+        <h1 style="margin:0">SaludMX AI <span style="color:var(--mx-gold)">WEB SERVER</span></h1>
+        <small id="status-text">Iniciando sistema de predicción...</small>
+    </div>
+    <div id="ai-status" style="background: rgba(0,0,0,0.2); padding: 5px 15px; border-radius: 20px; font-weight: bold;">🔴 DESCONECTADO</div>
+</header>
+
+<div class="main-container">
+    <aside>
+        <!-- GESTIÓN DE IA -->
+        <div class="card">
+            <h3>1. Inteligencia Artificial</h3>
+            <div class="console" id="log"> > Esperando carga de archivos...</div>
+            
+            <div class="btn-grid">
+                <button class="btn-main" onclick="document.getElementById('csv-input').click()">📁 ENTRENAR CON CSV</button>
+                <button id="btn-auto-load" class="btn-load" onclick="Engine.loadFromServer()">⚡ CARGAR IA DETECTADA</button>
+                <button id="btn-download" class="btn-dl" style="display:none" onclick="Engine.downloadWeights()">⬇️ DESCARGAR PESOS (BACKUP)</button>
+            </div>
+
+            <input type="file" id="csv-input" accept=".csv" style="display:none">
+        </div>
+
+        <!-- FORMULARIO INTEGRANTES -->
+        <div class="card">
+            <h3>2. Perfil del Integrante</h3>
+            <label>Nombre del familiar</label>
+            <input type="text" id="p-name" placeholder="Ej. Camila">
+            
+            <div style="display:flex; gap:10px">
+                <div style="flex:1"><label>Edad</label><input type="number" id="p-age" value="25"></div>
+                <div style="flex:1">
+                    <label>Sexo</label>
+                    <select id="p-sex"><option value="1">Mujer</option><option value="2">Hombre</option></select>
+                </div>
+            </div>
+
+            <label>Indicadores Médicos (Marcar si padece)</label>
+            <div class="checks">
+                <label class="check-item"><input type="checkbox" id="p-obe"> Obesidad</label>
+                <label class="check-item"><input type="checkbox" id="p-hyp"> Hipertensión</label>
+                <label class="check-item"><input type="checkbox" id="p-car"> Cardio</label>
+                <label class="check-item"><input type="checkbox" id="p-ren"> Renal</label>
+                <label class="check-item"><input type="checkbox" id="p-tab"> Fumador</label>
+                <label class="check-item"><input type="checkbox" id="p-epo"> EPOC</label>
+                <label class="check-item"><input type="checkbox" id="p-asm"> Asma</label>
+                <label class="check-item"><input type="checkbox" id="p-inm"> Inmuno</label>
+            </div>
+            <button id="btn-predict" class="btn-predict" disabled onclick="Engine.predict()">REALIZAR PREDICCIÓN</button>
+        </div>
+    </aside>
+
+    <main>
+        <div class="card">
+            <h3 style="margin-top:0">Análisis Epidemiológico Colectivo</h3>
+            <canvas id="riskChart" height="110"></canvas>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th>Edad</th>
+                        <th>Estado</th>
+                        <th>Probabilidad</th>
+                    </tr>
+                </thead>
+                <tbody id="family-table"></tbody>
+            </table>
+        </div>
+    </main>
+</div>
+
+<script>
+const Engine = {
+    model: null,
+    history: [],
+    chart: null,
+
+    log(msg) {
+        const c = document.getElementById('log');
+        c.innerHTML += `> ${msg}<br>`;
+        c.scrollTop = c.scrollHeight;
+    },
+
+    // 1. AL CARGAR: Buscar si los pesos ya están en el servidor
+    async checkServerModel() {
+        if (window.location.protocol === 'file:') {
+            this.log("⚠️ Estás en modo local (file://). Usa un servidor web para carga automática.");
+            return;
+        }
+
+        this.log("Buscando 'model.json' en el servidor...");
+        try {
+            const resp = await fetch('model.json', { method: 'HEAD' });
+            if (resp.ok) {
+                this.log("💎 ¡IA encontrada en el servidor!");
+                document.getElementById('btn-auto-load').style.display = 'block';
+                document.getElementById('status-text').innerText = "Modelo detectado. Listo para cargar.";
+                
+                if(confirm("Se encontró una IA entrenada en el servidor. ¿Deseas cargarla ahora?")) {
+                    this.loadFromServer();
+                }
+            } else {
+                this.log("No hay modelo previo. Por favor entrena con un CSV.");
+            }
+        } catch (e) {
+            this.log("Servidor listo. Sin IA previa.");
+        }
+    },
+
+    // 2. CARGAR DESDE SERVIDOR (Ruta relativa)
+    async loadFromServer() {
+        this.log("Cargando cerebro desde el servidor...");
+        try {
+            this.model = await tf.loadLayersModel('./model.json');
+            this.model.compile({optimizer: 'adam', loss: 'binaryCrossentropy', metrics: ['accuracy']});
+            this.onModelReady("🟢 IA CARGADA DEL SERVIDOR");
+        } catch (err) {
+            this.log("❌ Error cargando model.json. Verifica que esté en la misma carpeta.");
+        }
+    },
+
+    onModelReady(txt) {
+        document.getElementById('ai-status').innerText = txt;
+        document.getElementById('ai-status').style.background = "#2196F3";
+        document.getElementById('btn-predict').disabled = false;
+        document.getElementById('btn-download').style.display = 'block';
+        document.getElementById('status-text').innerText = "Sistema inteligente activo.";
+        this.log("✅ IA ACTIVA.");
+        this.initChart();
+    },
+
+    // 3. ENTRENAR (Para cuando no hay pesos en el servidor)
+    async trainCSV(file) {
+        this.log("Leyendo CSV...");
+        Papa.parse(file, {
+            header: true, dynamicTyping: true, skipEmptyLines: true,
+            complete: async (results) => {
+                const inputs = []; const outputs = [];
+                const t = (v) => v === 1 ? 1 : 0;
+
+                results.data.forEach(row => {
+                    if (row.EDAD != null && row.DIABETES != null) {
+                        inputs.push([
+                            row.SEXO === 1 ? 1 : 0, row.EDAD / 100,
+                            t(row.OBESIDAD), t(row.HIPERTENSION), t(row.CARDIOVASCULAR),
+                            t(row.RENAL_CRONICA), t(row.TABAQUISMO), t(row.EPOC),
+                            t(row.ASMA), t(row.INMUSUPR)
+                        ]);
+                        outputs.push([t(row.DIABETES)]);
+                    }
+                });
+
+                this.log(`Entrenando con ${inputs.length} casos...`);
+                this.model = tf.sequential();
+                this.model.add(tf.layers.dense({units: 16, inputShape: [10], activation: 'relu'}));
+                this.model.add(tf.layers.dense({units: 8, activation: 'relu'}));
+                this.model.add(tf.layers.dense({units: 1, activation: 'sigmoid'}));
+                this.model.compile({optimizer: tf.train.adam(0.01), loss: 'binaryCrossentropy', metrics: ['accuracy']});
+
+                await this.model.fit(tf.tensor2d(inputs), tf.tensor2d(outputs), {
+                    epochs: 50,
+                    callbacks: { onEpochEnd: (e, l) => { if(e%10==0) this.log(`Precisión: ${(l.acc*100).toFixed(1)}%`); } }
+                });
+
+                this.onModelReady("🟢 IA ENTRENADA");
+                this.log("👉 Pulsa 'DESCARGAR PESOS' y súbelos a tu servidor para que esto sea automático.");
+            }
+        });
+    },
+
+    async downloadWeights() {
+        this.log("Descargando archivos para tu servidor...");
+        await this.model.save('downloads://model');
+    },
+
+    async predict() {
+        const ck = (id) => document.getElementById(id).checked ? 1 : 0;
+        const input = [
+            parseInt(document.getElementById('p-sex').value) === 1 ? 1 : 0,
+            parseFloat(document.getElementById('p-age').value) / 100,
+            ck('p-obe'), ck('p-hyp'), ck('p-car'), ck('p-ren'),
+            ck('p-tab'), ck('p-epo'), ck('p-asm'), ck('p-inm')
+        ];
+
+        const res = await this.model.predict(tf.tensor2d([input])).data();
+        const score = res[0];
+
+        const member = {
+            name: document.getElementById('p-name').value || "Familiar",
+            age: document.getElementById('p-age').value,
+            score: score
+        };
+
+        this.history.push(member);
+        this.updateUI();
+    },
+
+    updateUI() {
+        const tbody = document.getElementById('family-table');
+        tbody.innerHTML = this.history.map(m => {
+            const p = (m.score * 100).toFixed(1);
+            const high = m.score > 0.45;
+            return `<tr>
+                <td><strong>${m.name}</strong></td>
+                <td>${m.age} años</td>
+                <td><span class="badge ${high?'high':'low'}">${high?'RIESGO ALTO':'ESTABLE'}</span></td>
+                <td>${p}%</td>
+            </tr>`;
+        }).join('');
+        this.updateChart();
+    },
+
+    initChart() {
+        const ctx = document.getElementById('riskChart').getContext('2d');
+        if(this.chart) this.chart.destroy();
+        this.chart = new Chart(ctx, {
+            type: 'bar',
+            data: { labels: [], datasets: [{ label: '% Probabilidad de Riesgo', data: [], backgroundColor: '#006341', borderRadius: 5 }] },
+            options: { scales: { y: { beginAtZero: true, max: 100 } } }
+        });
+    },
+
+    updateChart() {
+        this.chart.data.labels = this.history.map(m => m.name);
+        this.chart.data.datasets[0].data = this.history.map(m => m.score * 100);
+        this.chart.update();
+    }
+};
+
+// Listeners
+document.getElementById('csv-input').addEventListener('change', (e) => Engine.trainCSV(e.target.files[0]));
+window.onload = () => Engine.checkServerModel();
+</script>
+
+</body>
+</html>
